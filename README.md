@@ -181,6 +181,10 @@ make test
 
 ---
 
+## 相关
+
+- [nxmem](https://github.com/78236650/nxmem) —— 同一套思路的另一半：**记忆**共享（多机协作、scope 治理、进度看板）。keybaton 管"能开哪把锁"，nxmem 管"知道什么"。
+
 ## 许可
 
 MIT
