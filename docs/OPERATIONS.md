@@ -10,7 +10,7 @@
 |---|---|---|
 | 前台进程 | 本机试用 | `keybaton serve --addr 127.0.0.1:8765` |
 | systemd | Linux 服务器 | 见 §2 |
-| Docker | 客户现场、NAS | 见 §3 |
+| Docker | 现场部署、NAS | 见 §3 |
 | launchd | macOS 常驻 | 见 §4 |
 
 **共同原则**：服务只监听你真正要暴露的地址。跨网访问请不要直接暴露公网——走 VPN / ZeroTier / 内网。
