@@ -46,6 +46,8 @@ jobs:
 
   release:
     needs: build
+    # 只有 tag 才有 Release 上下文；手动触发只验构建
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -59,6 +61,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: |
             dist/keybaton-*
             dist/SHA256SUMS
