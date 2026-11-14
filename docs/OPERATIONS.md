@@ -63,7 +63,7 @@ journalctl -u keybaton -f
 ```yaml
 services:
   keybaton:
-    image: ghcr.io/gomind-nx/keybaton:0.1.0
+    image: ghcr.io/78236650/keybaton:0.1.0
     container_name: keybaton
     restart: unless-stopped
     ports:

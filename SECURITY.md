@@ -4,7 +4,7 @@ keybaton 处理的是凭据，所以这里把"防什么、不防什么、怎么�
 
 ## 报告漏洞
 
-**请不要开 public issue。** 发邮件到 `security@gomind.dev`，或使用 GitHub 的 [Private vulnerability reporting](https://github.com/gomind-nx/keybaton/security/advisories/new)。
+**请不要开 public issue。** 使用 GitHub 的 [Private vulnerability reporting](https://github.com/78236650/keybaton/security/advisories/new)。
 
 请包含：复现步骤、影响范围、你用的版本、必要的 PoC。我们会在 72 小时内首次回复。
 

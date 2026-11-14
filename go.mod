@@ -1,4 +1,4 @@
-module github.com/gomind-nx/keybaton
+module github.com/78236650/keybaton
 
 go 1.25
 

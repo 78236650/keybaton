@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gomind-nx/keybaton/internal/vault"
+	"github.com/78236650/keybaton/internal/vault"
 )
 
 const version = "0.1.0"

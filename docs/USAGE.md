@@ -8,7 +8,7 @@
 
 ### 1.1 下载二进制（推荐）
 
-从 [Releases](https://github.com/gomind-nx/keybaton/releases) 下载对应平台：
+从 [Releases](https://github.com/78236650/keybaton/releases) 下载对应平台：
 
 | 平台 | 文件 |
 |---|---|
@@ -35,7 +35,7 @@ keybaton version
 ### 1.2 go install
 
 ```bash
-go install github.com/gomind-nx/keybaton/cmd/keybaton@latest
+go install github.com/78236650/keybaton/cmd/keybaton@latest
 ```
 
 需要 Go 1.22+，产物在 `$(go env GOPATH)/bin/keybaton`。

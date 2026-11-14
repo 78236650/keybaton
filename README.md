@@ -1,6 +1,6 @@
 # keybaton
 
-[![release](https://img.shields.io/github/v/release/gomind-nx/keybaton)](https://github.com/gomind-nx/keybaton/releases)
+[![release](https://img.shields.io/github/v/release/78236650/keybaton)](https://github.com/78236650/keybaton/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![go](https://img.shields.io/badge/go-1.22%2B-00ADD8)](go.mod)
 [![platform](https://img.shields.io/badge/platform-darwin%20%7C%20linux-lightgrey)](#32-构建)
@@ -48,10 +48,10 @@ keybaton serve                     # agent 通过 kb_http 让服务端代发请�
 #      sudo install -m 0755 keybaton-darwin-arm64 /usr/local/bin/keybaton
 #      keybaton version        # 确认装好；没有 sudo 就用 ./keybaton 代替下面的 keybaton
 #   b) 用 Go 装（需要 Go 1.22+）
-go install github.com/gomind-nx/keybaton/cmd/keybaton@latest
+go install github.com/78236650/keybaton/cmd/keybaton@latest
 #   c) 容器（必须带 KEYBATON_TOKEN：容器内监听 0.0.0.0，没有令牌会被拒绝启动）
 #      下面的 docker build 需在源码仓库根目录执行（那里才有 Dockerfile）
-docker build -t keybaton:0.1.0 .          # 或 ghcr.io/gomind-nx/keybaton:0.1.0（发布后）
+docker build -t keybaton:0.1.0 .          # 或 ghcr.io/78236650/keybaton:0.1.0（发布后）
 docker run -v ~/.keybaton:/home/kb/.keybaton \
   -e KEYBATON_TOKEN=$KEYBATON_TOKEN \
   -p 127.0.0.1:8765:8765 keybaton:0.1.0 serve --addr 0.0.0.0:8765
