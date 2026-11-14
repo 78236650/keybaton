@@ -1,0 +1,23 @@
+# 构建产物
+/bin/
+/dist/
+
+# 绝不能进仓库：库文件与主密钥
+*.db
+*.db-wal
+*.db-shm
+master.key
+
+# 本地环境
+.env
+.env.*
+!.env.example
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/
+
+# 测试残留
+/tmp/
+*.test
