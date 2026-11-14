@@ -6,6 +6,33 @@
 
 ### 计划中
 - TOTP 代取：2FA 种子不出服务端，由服务端生成动态码
+- `--file` 注入、导入 1Password / Bitwarden
+- 加密备份包（`keybaton backup`）与审计哈希链
+
+## [0.2.0] - 2026-11-14
+
+### 安全（破坏性变更）
+- **密文 AAD 绑定条目名**：`AAD = "v2" ‖ key_id ‖ name`。
+  修复"把 A 行的密文挪到 B 行即可让服务端用 B 的名字解出 A 的密钥"这一攻击——
+  旧版本可以稳定复现（交换两行 cipher/nonce 后 `get` 返回另一条的值且不报错），现在直接解密失败。
+- **出站主机白名单 `allow_hosts`**：`kb_http` 默认**禁止外发**，必须显式授权：
+  `keybaton policy <name> --allow api.github.com`。修复"拿到令牌即可把任意密钥发到任意域名"。
+  支持通配 `*.example.com`；`--clear` 恢复为禁止。
+- **密钥环 `keys.json`**：支持多代密钥（`active` + `keys`），为轮换与回滚做准备。老库的 `master.key` 自动导入为 `key_id=1`。
+
+### 新增
+- `keybaton rotate --yes`：生成新 `key_id`，重新加密全部条目，旧密钥保留可回滚
+- `keybaton policy <name> --allow ... | --clear`、`keybaton policy --list`
+- `internal/vault/vault_test.go`：交换密文 / 篡改 / 轮换 / 老库迁移 / 主机白名单，共 5 组断言
+
+### 变更
+- 老库打开时自动迁移到 v2（`ALTER TABLE` 补 `fmt` / `key_id` / `allow_hosts`，逐条重加密；失败即中止不改数据）
+- 升级后**必须**为每个要外发的条目配 `allow_hosts`，否则 `kb_http` 会拒绝
+
+## [0.1.1] - 2026-11-14
+
+### 计划中
+- TOTP 代取：2FA 种子不出服务端，由服务端生成动态码
 - `--file` 注入：把凭据写成临时文件并注入路径（给只支持文件读取的工具）
 - 导入：1Password / Bitwarden / dotenv 目录批量
 - 团队模式：多令牌 + 按条目授权 + 审批流

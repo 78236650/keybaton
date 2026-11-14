@@ -90,6 +90,9 @@ agent 侧接 MCP（HTTP）：`http://<host>:8765/mcp`，Header `X-Keybaton-Token
 | `kb_whoami` | 当前身份与能力 |
 
 `kb_http` 支持四种注入方式：`bearer`（默认）、`basic`、`header`、`query`。
+
+**出站默认禁止**：先用 `keybaton policy <name> --allow api.github.com` 授权目标主机，
+否则请求会被拒绝。这是为了防止"拿到令牌就能把任意密钥发到任意域名"。
 **未知字段会被拒绝**（不会静默回落到默认值）。
 
 | auth | 额外参数 | 效果 |

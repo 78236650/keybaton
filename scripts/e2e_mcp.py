@@ -19,7 +19,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-BIN = "/tmp/keybaton"
+BIN = os.environ.get("KB_BIN", "/tmp/keybaton")
 PORT = 18765
 ECHO_PORT = 18080
 seen = {}
@@ -61,6 +61,8 @@ def main():
     subprocess.run([BIN, "init"], env=env, check=True, capture_output=True)
     subprocess.run([BIN, "put", "github", "--user", "me"], env=env,
                    input=b"s3cr3t-value\n", check=True, capture_output=True)
+    # v0.2 起：出站必须显式授权主机（默认禁止外发）
+    subprocess.run([BIN, "policy", "github", "--allow", "127.0.0.1"], env=env, check=True, capture_output=True)
 
     srv = subprocess.Popen([BIN, "serve", "--addr", f"127.0.0.1:{PORT}", "--token", "tkn"],
                            env=env, stdout=open("/tmp/kb_serve.log", "w"), stderr=subprocess.STDOUT)
@@ -92,6 +94,7 @@ def main():
         # D3 basic 形态（base64）也必须脱敏
         subprocess.run([BIN, "put", "basic1", "--user", "bob"], env=env,
                        input=b"pass123\n", check=True, capture_output=True)
+        subprocess.run([BIN, "policy", "basic1", "--allow", "127.0.0.1"], env=env, check=True, capture_output=True)
         r3 = rpc("tools/call", {"name": "kb_http", "arguments": {
             "secret": "basic1", "url": f"http://127.0.0.1:{ECHO_PORT}/reveal", "auth": "basic"}}, rid=6)
         t3 = r3["result"]["content"][0]["text"]

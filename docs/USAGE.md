@@ -195,6 +195,9 @@ MCP:  POST /mcp
 
 **未知字段会被拒绝**，不会静默回落到默认值。
 
+**出站默认禁止**：每个条目必须先用 `keybaton policy <name> --allow <host>` 授权，否则 `kb_http` 报
+`目标主机 ... 不在 allow_hosts 白名单里`。这是 v0.2 的破坏性变更——宁可升级后配一次，也不让"拿到令牌就能把任意密钥发到任意域名"成立。
+
 ### 5.4 只支持 stdio 的客户端
 
 用内置的 HTTP 桥（`scripts/mcp_stdio.py`，纯标准库）：

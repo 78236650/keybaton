@@ -12,13 +12,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/78236650/keybaton/internal/vault"
 )
 
-const version = "0.1.1"
+const version = "0.2.0"
 const maxBody = 64 << 10 // 响应体截断到 64KB，避免把大文件灌进上下文
 
 // Options 是启动参数。
@@ -296,6 +297,17 @@ func (s *Server) brokerHTTP(id Identity, args json.RawMessage) map[string]any {
 	if err != nil {
 		s.opt.Store.Audit(id.Name, "http", a.Secret, false, err.Error())
 		return errResult(err.Error())
+	}
+	// 出站白名单：没配置就一律禁止。否则拿到令牌的人可以让服务端把任意密钥发到任意域名。
+	u, uerr := url.Parse(a.URL)
+	if uerr != nil || u.Hostname() == "" {
+		return errResult("bad url: " + a.URL)
+	}
+	if !vault.HostAllowed(e.AllowHosts, u.Hostname()) {
+		s.opt.Store.Audit(id.Name, "host_denied", a.Secret, false, u.Hostname())
+		return errResult(fmt.Sprintf(
+			"目标主机 %s 不在 allow_hosts 白名单里（默认禁止外发）。授权命令：keybaton policy %s --allow %s",
+			u.Hostname(), a.Secret, u.Hostname()))
 	}
 	method := strings.ToUpper(a.Method)
 	if method == "" {

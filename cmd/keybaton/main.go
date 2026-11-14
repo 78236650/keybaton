@@ -21,7 +21,7 @@ import (
 	"github.com/78236650/keybaton/internal/vault"
 )
 
-const version = "0.1.1"
+const version = "0.2.0"
 
 const usage = `keybaton —— 本地凭据代理（凭据不进上下文）
 
@@ -75,6 +75,10 @@ func main() {
 		err = cmdServe(args)
 	case "audit":
 		err = cmdAudit(args)
+	case "rotate":
+		err = cmdRotate(os.Args[2:])
+	case "policy":
+		err = cmdPolicy(os.Args[2:])
 	case "token", "tokens":
 		err = cmdToken(args)
 	case "version", "-v", "--version":
@@ -550,4 +554,78 @@ func trunc(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// cmdRotate 轮换主密钥：生成新 key_id，重新加密全部条目，旧密钥保留可回滚。
+func cmdRotate(args []string) error {
+	fs := flag.NewFlagSet("rotate", flag.ExitOnError)
+	force := fs.Bool("yes", false, "确认执行（会重写全部密文）")
+	fs.Parse(args)
+	if !*force {
+		return fmt.Errorf("这会重新加密全部条目。确认请加 --yes（建议先备份 keys.json 与 vault.db）")
+	}
+	s, err := vault.Open(vault.HomeDir())
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	oldID, newID, err := s.Rotate()
+	if err != nil {
+		return err
+	}
+	s.Audit("cli", "rotate", fmt.Sprintf("%d->%d", oldID, newID), true, "")
+	fmt.Printf("密钥已轮换：key_id %d → %d\n旧密钥仍保留在 keys.json 中（可用于回滚或解密历史备份）。\n", oldID, newID)
+	return nil
+}
+
+// cmdPolicy 管理条目的出站白名单：默认禁止外发，必须显式授权主机。
+func cmdPolicy(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("用法: keybaton policy <name> [--allow host1,host2] [--clear] | keybaton policy --list")
+	}
+	s, err := vault.Open(vault.HomeDir())
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	if args[0] == "--list" || args[0] == "list" {
+		list, err := s.List()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-24s %s\n", "NAME", "ALLOW_HOSTS")
+		for _, m := range list {
+			hosts := m.AllowHosts
+			if hosts == "" {
+				hosts = "(禁止外发)"
+			}
+			fmt.Printf("%-24s %s\n", m.Name, hosts)
+		}
+		return nil
+	}
+
+	name := args[0]
+	fs := flag.NewFlagSet("policy", flag.ExitOnError)
+	allow := fs.String("allow", "", "允许的目标主机，逗号分隔，支持 *.example.com")
+	clear := fs.Bool("clear", false, "清空白名单（恢复为禁止外发）")
+	fs.Parse(args[1:])
+
+	hosts := ""
+	if !*clear {
+		if *allow == "" {
+			return fmt.Errorf("需要 --allow host1,host2 或 --clear")
+		}
+		hosts = *allow
+	}
+	if err := s.SetAllowHosts(name, hosts); err != nil {
+		return err
+	}
+	s.Audit("cli", "policy", name, true, hosts)
+	if hosts == "" {
+		fmt.Printf("%s：已清空白名单，禁止外发\n", name)
+	} else {
+		fmt.Printf("%s：允许发往 %s\n", name, hosts)
+	}
+	return nil
 }
