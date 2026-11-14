@@ -16,8 +16,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/keybaton/keybaton/internal/server"
-	"github.com/keybaton/keybaton/internal/vault"
+	"github.com/gomind-nx/keybaton/internal/server"
+	"github.com/gomind-nx/keybaton/internal/vault"
 )
 
 const version = "0.1.0"

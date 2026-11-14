@@ -1,11 +1,24 @@
 # keybaton
 
+[![release](https://img.shields.io/github/v/release/gomind-nx/keybaton)](https://github.com/gomind-nx/keybaton/releases)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![go](https://img.shields.io/badge/go-1.22%2B-00ADD8)](go.mod)
+[![platform](https://img.shields.io/badge/platform-darwin%20%7C%20linux-lightgrey)](#32-构建)
+
 **给脚本和 agent 用的本地凭据代理。凭据不进上下文。**
 
 ```bash
-keybaton run -- npm start          # 密钥以环境变量注入，不进 shell history、不进日志
+keybaton run -- npm start          # 密钥注入环境变量，不进 shell history、不进日志
 keybaton serve                     # agent 通过 kb_http 让服务端代发请求，永远拿不到明文
 ```
+
+| 文档 | 内容 |
+|---|---|
+| [使用文档](docs/USAGE.md) | 安装、九个命令、MCP 接入、参数、退出码、常见问题 |
+| [设计文档](docs/DESIGN.md) | 威胁模型、两种交付模式、取舍与被否掉的方案 |
+| [运维文档](docs/OPERATIONS.md) | systemd / Docker / launchd、备份、升级、令牌轮换、故障处置 |
+| [安全策略](SECURITY.md) | 防什么、不防什么、漏洞怎么报 |
+| [变更日志](CHANGELOG.md) | 版本沿革 |
 
 一个二进制、一个 SQLite 文件、一个主密钥。不需要 PostgreSQL、不需要反向代理、不需要有人运维。
 
@@ -35,10 +48,10 @@ keybaton serve                     # agent 通过 kb_http 让服务端代发请�
 #      sudo install -m 0755 keybaton-darwin-arm64 /usr/local/bin/keybaton
 #      keybaton version        # 确认装好；没有 sudo 就用 ./keybaton 代替下面的 keybaton
 #   b) 用 Go 装（需要 Go 1.22+）
-go install github.com/keybaton/keybaton/cmd/keybaton@latest
+go install github.com/gomind-nx/keybaton/cmd/keybaton@latest
 #   c) 容器（必须带 KEYBATON_TOKEN：容器内监听 0.0.0.0，没有令牌会被拒绝启动）
 #      下面的 docker build 需在源码仓库根目录执行（那里才有 Dockerfile）
-docker build -t keybaton:0.1.0 .          # 或 ghcr.io/keybaton/keybaton:0.1.0（发布后）
+docker build -t keybaton:0.1.0 .          # 或 ghcr.io/gomind-nx/keybaton:0.1.0（发布后）
 docker run -v ~/.keybaton:/home/kb/.keybaton \
   -e KEYBATON_TOKEN=$KEYBATON_TOKEN \
   -p 127.0.0.1:8765:8765 keybaton:0.1.0 serve --addr 0.0.0.0:8765
