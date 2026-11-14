@@ -14,13 +14,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/78236650/keybaton/internal/server"
 	"github.com/78236650/keybaton/internal/vault"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 const usage = `keybaton —— 本地凭据代理（凭据不进上下文）
 
@@ -32,14 +33,18 @@ const usage = `keybaton —— 本地凭据代理（凭据不进上下文）
   keybaton rm <name>                         删除
   keybaton run [--only P] -- <cmd> [args...] 把密钥注入环境变量后运行命令
   keybaton import [--file .env]              从 dotenv 批量导入
-  keybaton serve [--addr 127.0.0.1:8765] [--token T] [--allow-get]
+  keybaton serve [--addr 127.0.0.1:8765] [--tokens-file F] [--allow-get]
                                              启动 HTTP + MCP（agent 用 kb_http 代发请求）
+  keybaton token new --name <name> --scopes kb:read,kb:http
+                                             签发一个令牌（name + scopes，明文只显示一次）
+  keybaton token list                       列出令牌身份（name / scopes / hash 前 8 位）
   keybaton audit [--limit 20]                查看调用记录
   keybaton version
 
 环境变量:
   KEYBATON_HOME        库目录（默认 ~/.keybaton）
   KEYBATON_MASTER_KEY  主密钥 base64（CI/容器场景，优先于 master.key）
+  KEYBATON_TOKENS_FILE tokens.json 路径（默认 $KEYBATON_HOME/tokens.json）
 `
 
 func main() {
@@ -70,6 +75,8 @@ func main() {
 		err = cmdServe(args)
 	case "audit":
 		err = cmdAudit(args)
+	case "token", "tokens":
+		err = cmdToken(args)
 	case "version", "-v", "--version":
 		fmt.Printf("keybaton %s\n", version)
 	case "help", "-h", "--help":
@@ -129,6 +136,83 @@ func flagOr(m map[string]string, k, def string) string {
 }
 
 func openStore() (*vault.Store, error) { return vault.Open(vault.HomeDir()) }
+
+// tokensFileDefault 决定 tokens.json 的位置：显式环境变量优先，否则用库目录下的文件；
+// 文件不存在时返回空串（没有配置多身份，退化为单令牌/loopback 模式）。
+func tokensFileDefault() string {
+	if v := os.Getenv("KEYBATON_TOKENS_FILE"); v != "" {
+		return v
+	}
+	p := filepath.Join(vault.HomeDir(), "tokens.json")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ""
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if v := strings.TrimSpace(part); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// cmdToken 管 tokens.json：签发（name + scopes）与列出。
+func cmdToken(args []string) error {
+	sub := "new"
+	if len(args) > 0 {
+		sub = args[0]
+		args = args[1:]
+	}
+	switch sub {
+	case "new", "add":
+		fs := flag.NewFlagSet("token new", flag.ExitOnError)
+		name := fs.String("name", "", "调用方名字（写进审计的 agent 字段）")
+		scopes := fs.String("scopes", "", "逗号分隔：kb:read,kb:http,kb:audit,kb:reveal 或 *（全权）")
+		file := fs.String("file", tokensFileDefault(), "tokens.json 路径（默认 $KEYBATON_HOME/tokens.json）")
+		note := fs.String("note", "", "备注")
+		fs.Parse(args)
+		if *name == "" || *scopes == "" {
+			return fmt.Errorf("用法: keybaton token new --name <name> --scopes kb:read,kb:http")
+		}
+		path := *file
+		if path == "" {
+			path = filepath.Join(vault.HomeDir(), "tokens.json")
+		}
+		plain, err := server.AppendToken(path, *name, splitCSV(*scopes), *note)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("令牌（只显示这一次，请立刻存进调用方）:\n\n  %s\n\n已写入 %s（库里只存 sha256）\n", plain, path)
+		return nil
+	case "list", "ls":
+		fs := flag.NewFlagSet("token list", flag.ExitOnError)
+		file := fs.String("file", tokensFileDefault(), "tokens.json 路径")
+		fs.Parse(args)
+		if *file == "" {
+			fmt.Println("没有 tokens.json（只用 --token 单令牌模式）")
+			return nil
+		}
+		toks, err := server.LoadTokens(*file)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-20s %-40s %s\n", "NAME", "SCOPES", "HASH")
+		for _, t := range toks {
+			h := t.TokenHash
+			if len(h) > 8 {
+				h = h[:8] + "…"
+			}
+			fmt.Printf("%-20s %-40s %s\n", t.Name, strings.Join(t.Scopes, ","), h)
+		}
+		return nil
+	default:
+		return fmt.Errorf("用法: keybaton token new|list")
+	}
+}
 
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
@@ -406,7 +490,8 @@ func cmdImport(args []string) error {
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "监听地址")
-	token := fs.String("token", os.Getenv("KEYBATON_TOKEN"), "访问令牌（非 loopback 必填）")
+	token := fs.String("token", os.Getenv("KEYBATON_TOKEN"), "单令牌模式（全权，兼容旧配置）")
+	tokensFile := fs.String("tokens-file", tokensFileDefault(), "tokens.json 路径（name + scopes）")
 	allowGet := fs.Bool("allow-get", false, "允许 kb_get 直接返回明文（危险）")
 	actor := fs.String("actor", "agent", "审计里记录的调用方名称")
 	fs.Parse(args)
@@ -415,14 +500,22 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv := server.New(server.Options{Addr: *addr, Token: *token, AllowGet: *allowGet, Store: s, Actor: *actor})
+	srv, err := server.New(server.Options{Addr: *addr, Token: *token, TokensFile: *tokensFile, AllowGet: *allowGet, Store: s, Actor: *actor})
+	if err != nil {
+		return err
+	}
 	if err := srv.CheckSafety(); err != nil {
 		return err
 	}
 	s.Audit("cli", "serve", *addr, true, fmt.Sprintf("allow_get=%v", *allowGet))
 	fmt.Printf("keybaton %s 监听 http://%s\n  MCP:  POST /mcp\n  只读: GET /api/secrets\n  健康: GET /healthz\n", version, *addr)
-	if *token == "" {
-		fmt.Println("  提示: 未设令牌，仅本机可访问；给 agent 用请加 --token")
+	if *token == "" && *tokensFile == "" {
+		fmt.Println("  提示: 未设令牌，仅本机可访问；给 agent 用请执行 keybaton token new")
+	} else if *tokensFile != "" {
+		fmt.Printf("  令牌文件: %s\n", *tokensFile)
+	}
+	if *token != "" {
+		fmt.Printf("  单令牌模式: actor=%s（全权，建议改为 tokens.json 多身份）\n", *actor)
 	}
 	return srv.ListenAndServe()
 }

@@ -1,5 +1,7 @@
 # 多阶段构建：最终镜像只有一个静态二进制
+ARG VERSION=dev
 FROM golang:1.25-alpine AS build
+ARG VERSION
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go env -w GOPROXY=https://goproxy.cn,direct && go mod download
@@ -7,6 +9,10 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/keybaton ./cmd/keybaton
 
 FROM alpine:3.20
+ARG VERSION
+LABEL org.opencontainers.image.title="keybaton" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.description="给脚本与 agent 用的凭据代理：凭据不进上下文"
 RUN adduser -D -u 10001 kb
 COPY --from=build /out/keybaton /usr/local/bin/keybaton
 # 注意：容器内监听 0.0.0.0，启动时必须提供 KEYBATON_TOKEN（-e KEYBATON_TOKEN=...），
@@ -15,5 +21,7 @@ USER kb
 WORKDIR /home/kb
 VOLUME ["/home/kb/.keybaton"]
 EXPOSE 8765
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8765/healthz || exit 1
 ENTRYPOINT ["keybaton"]
 CMD ["serve", "--addr", "0.0.0.0:8765"]

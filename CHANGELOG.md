@@ -10,6 +10,20 @@
 - 导入：1Password / Bitwarden / dotenv 目录批量
 - 团队模式：多令牌 + 按条目授权 + 审批流
 
+## [0.1.1] - 2026-11-14
+
+### 新增
+- **多身份令牌 `tokens.json`**：`令牌 = { name, token_hash, scopes[] }`，与 nxmem / 旧 Python 版统一口径
+- `keybaton token new --name N --scopes kb:read,kb:http`：签发令牌（明文只显示一次，库里只存 sha256）；
+  `keybaton token list` 查看 name / scopes / hash
+- 按工具做能力校验：`kb_list`→`kb:read`、`kb_http`→`kb:http`、`kb_audit`→`kb:audit`、`kb_get`→`kb:reveal`；
+  越权返回 403 与缺失的 cap，并写审计 `tool_denied`
+- `deploy/`：compose、tokens.json 模板、部署与轮换说明；镜像带 HEALTHCHECK
+
+### 变更
+- 审计 actor 取令牌的 `name`（不再统一写 `--actor`）；`kb_whoami` 返回 name + scopes
+- `--token` / `KEYBATON_TOKEN` 降级为兼容模式（等价 `scopes=["*"]`），启动时提示改用 tokens.json
+
 ## [0.1.0] - 2026-11-14
 
 首个公开版本。定位：**单机、单二进制、给脚本与 agent 用的凭据代理**。

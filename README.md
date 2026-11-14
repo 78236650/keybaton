@@ -76,6 +76,8 @@ export KEYBATON_TOKEN=$(openssl rand -hex 24)
 keybaton serve --addr 0.0.0.0:8765 --token "$KEYBATON_TOKEN"
 ```
 
+生产建议用多身份令牌（一机一令牌、各自 scope），见下面「多身份令牌」一节。
+
 agent 侧接 MCP（HTTP）：`http://<host>:8765/mcp`，Header `X-Keybaton-Token`。
 
 可用工具：
@@ -116,6 +118,32 @@ agent 侧接 MCP（HTTP）：`http://<host>:8765/mcp`，Header `X-Keybaton-Token
 
 **默认没有 `kb_get`**。要允许 agent 直接拿明文，必须显式 `keybaton serve --allow-get`——我们建议永远不要开。
 
+### 多身份令牌：`tokens.json`（v0.1.1）
+
+一个文件管所有调用方：`令牌 = { name, token_hash, scopes[] }`，与 nxmem 同一套口径。
+
+```bash
+keybaton token new --name hermes-nas --scopes kb:read,kb:http,kb:audit   # 明文只显示一次
+keybaton token list                                                      # name / scopes / hash
+keybaton serve --addr 0.0.0.0:8765 --tokens-file ~/.keybaton/tokens.json
+```
+
+```json
+{
+  "version": 1,
+  "tokens": [
+    {"name": "hermes-nas", "token_hash": "<sha256 hex>", "scopes": ["kb:read", "kb:http"]},
+    {"name": "readonly-bot", "token_hash": "<sha256 hex>", "scopes": ["kb:read"]}
+  ]
+}
+```
+
+- 能力 `kb:read`（列表）· `kb:http`（代发）· `kb:audit`（审计）· `kb:reveal`（取明文，另需 `--allow-get`）；支持 `kb:*` 与 `*`。
+- 审计的 actor 就是令牌的 `name`，不再是一个笼统的 `--actor`。
+- 路径：`--tokens-file` > `KEYBATON_TOKENS_FILE` > `$KEYBATON_HOME/tokens.json`。
+- 兼容：`--token` / `KEYBATON_TOKEN` 单令牌模式仍在，等价于 `name=--actor, scopes=["*"]`；生产建议改用 `tokens.json`。
+- 容器部署见 [deploy/README.md](deploy/README.md)。
+
 ---
 
 ## 安全模型（请先读这段再用于生产）
@@ -153,6 +181,8 @@ keybaton run [--only P] -- <cmd>           注入环境变量后运行
                                            无匹配则报错退出（不会静默注入 0 条）
 keybaton import [--file .env]              批量导入 dotenv（文件不存在会报错退出）
 keybaton serve [--addr] [--token] [--allow-get]
+keybaton token new --name N --scopes kb:read,kb:http   签发令牌（name + scopes，明文只显示一次）
+keybaton token list                       列出令牌身份
 keybaton audit [--limit N]                 调用记录
 ```
 

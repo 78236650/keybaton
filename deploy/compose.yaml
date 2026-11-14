@@ -1,0 +1,36 @@
+name: keybaton
+
+# 单机部署（NAS / 小服务器）
+#   1) 先在本目录初始化库与令牌（宿主机执行，需 keybaton 二进制）：
+#        KEYBATON_HOME=./data keybaton init
+#        KEYBATON_HOME=./data keybaton token new --name hermes-nas --scopes kb:read,kb:http
+#   2) docker compose -f deploy/compose.yaml up -d --build
+#   3) curl -H "X-Keybaton-Token: $T" http://<host>:8765/healthz
+#
+# 安全边界：能跑 docker 就等于 root，容器里的令牌对等价威胁面不设防；
+# 不要把 8765 映射到公网，跨网用 VPN / ZeroTier。
+
+services:
+  keybaton:
+    build:
+      context: ..
+      args:
+        VERSION: "0.1.1"
+    image: keybaton:0.1.1
+    container_name: keybaton
+    restart: unless-stopped
+    command: ["serve", "--addr", "0.0.0.0:8765", "--tokens-file", "/data/tokens.json"]
+    environment:
+      KEYBATON_HOME: /data
+      # 可选：用 base64 主密钥替代 data/master.key（优先）
+      # KEYBATON_MASTER_KEY: ${KEYBATON_MASTER_KEY:-}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/data
+    ports:
+      - "8765:8765"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8765/healthz"]
+      interval: 60s
+      timeout: 5s
+      retries: 3

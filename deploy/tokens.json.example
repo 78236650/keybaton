@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "tokens": [
+    {
+      "name": "hermes-nas",
+      "token_hash": "<sha256(令牌)，用 keybaton token new 生成，别手填明文>",
+      "scopes": ["kb:read", "kb:http", "kb:audit"],
+      "note": "中枢：可列条目、代发请求、读审计"
+    },
+    {
+      "name": "readonly-bot",
+      "token_hash": "<sha256>",
+      "scopes": ["kb:read"],
+      "note": "只读：只能 kb_list / GET /api/secrets"
+    }
+  ]
+}

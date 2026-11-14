@@ -18,33 +18,43 @@ import (
 	"github.com/78236650/keybaton/internal/vault"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 const maxBody = 64 << 10 // 响应体截断到 64KB，避免把大文件灌进上下文
 
 // Options 是启动参数。
 type Options struct {
-	Addr     string
-	Token    string
-	AllowGet bool
-	Store    *vault.Store
-	Actor    string
+	Addr       string
+	Token      string // 单令牌模式（KEYBATON_TOKEN），全权；保留兼容
+	TokensFile string // tokens.json：name + scopes，多身份
+	AllowGet   bool
+	Store      *vault.Store
+	Actor      string
 }
 
 // Server 持有 http.Server 与依赖。
 type Server struct {
-	opt Options
-	srv *http.Server
+	opt    Options
+	tokens []TokenEntry
+	srv    *http.Server
 }
 
 // New 构造服务器。
-func New(opt Options) *Server {
+func New(opt Options) (*Server, error) {
+	var toks []TokenEntry
+	if opt.TokensFile != "" {
+		t, err := LoadTokens(opt.TokensFile)
+		if err != nil {
+			return nil, err
+		}
+		toks = t
+	}
 	mux := http.NewServeMux()
-	s := &Server{opt: opt}
+	s := &Server{opt: opt, tokens: toks}
 	mux.HandleFunc("/healthz", s.health)
 	mux.HandleFunc("/mcp", s.mcp)
 	mux.HandleFunc("/api/secrets", s.listHTTP)
 	s.srv = &http.Server{Addr: opt.Addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	return s
+	return s, nil
 }
 
 // ListenAndServe 阻塞运行。
@@ -57,8 +67,8 @@ func (s *Server) CheckSafety() error {
 		return err
 	}
 	loopback := host == "127.0.0.1" || host == "localhost" || host == "::1"
-	if !loopback && s.opt.Token == "" {
-		return fmt.Errorf("拒绝启动：监听 %s 但未设置令牌（--token 或 KEYBATON_TOKEN）", s.opt.Addr)
+	if !loopback && s.opt.Token == "" && len(s.tokens) == 0 {
+		return fmt.Errorf("拒绝启动：监听 %s 但没有任何令牌（--tokens-file 或 --token/KEYBATON_TOKEN）", s.opt.Addr)
 	}
 	return nil
 }
@@ -67,25 +77,27 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "version": version, "ts": time.Now().Format(time.RFC3339)})
 }
 
-func (s *Server) authorized(r *http.Request) bool {
-	if s.opt.Token == "" {
-		return true // 仅 loopback 场景（CheckSafety 已保证）
-	}
-	tok := r.Header.Get("X-Keybaton-Token")
-	if tok == "" {
-		tok = r.Header.Get("X-Api-Key")
-	}
-	if tok == "" {
-		if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
-			tok = strings.TrimSpace(h[7:])
+// require 校验令牌与能力 scope；失败时已写好响应。
+// 没有任何令牌且只在 loopback 时（CheckSafety 已保证）视为本机全权。
+func (s *Server) require(w http.ResponseWriter, r *http.Request, cap string) (Identity, bool) {
+	id, ok := s.identify(r)
+	if !ok {
+		if s.opt.Token == "" && len(s.tokens) == 0 {
+			return Identity{Name: "loopback", Scopes: []string{"*"}}, true
 		}
+		writeJSON(w, 401, map[string]any{"error": "unauthorized", "hint": "需要 X-Keybaton-Token / Bearer 令牌"})
+		return Identity{}, false
 	}
-	return tok == s.opt.Token
+	if cap != "" && !id.Can(cap) {
+		s.opt.Store.Audit(id.Name, "tool_denied", cap, false, "scopes="+strings.Join(id.Scopes, ","))
+		writeJSON(w, 403, map[string]any{"error": "forbidden", "cap": cap, "scopes": id.Scopes})
+		return Identity{}, false
+	}
+	return id, true
 }
 
 func (s *Server) listHTTP(w http.ResponseWriter, r *http.Request) {
-	if !s.authorized(r) {
-		writeJSON(w, 401, map[string]any{"error": "unauthorized"})
+	if _, ok := s.require(w, r, "kb:read"); !ok {
 		return
 	}
 	list, err := s.opt.Store.List()
@@ -121,9 +133,14 @@ var tools = []map[string]any{
 }
 
 func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
-	if !s.authorized(r) {
-		writeJSON(w, 401, map[string]any{"error": "unauthorized"})
-		return
+	id, authed := s.identify(r)
+	if !authed {
+		if s.opt.Token == "" && len(s.tokens) == 0 {
+			id = Identity{Name: "loopback", Scopes: []string{"*"}}
+		} else {
+			writeJSON(w, 401, map[string]any{"error": "unauthorized", "hint": "需要 X-Keybaton-Token / Bearer 令牌"})
+			return
+		}
 	}
 	var req struct {
 		JSONRPC string          `json:"jsonrpc"`
@@ -168,7 +185,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			ok(errResult("bad params"))
 			return
 		}
-		ok(s.callTool(p.Name, p.Arguments))
+		ok(s.callTool(id, p.Name, p.Arguments))
 	default:
 		writeJSON(w, 200, map[string]any{"jsonrpc": "2.0", "id": req.ID,
 			"error": map[string]any{"code": -32601, "message": "method not found"}})
@@ -184,20 +201,30 @@ func textResult(v any) map[string]any {
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(b)}}, "isError": false}
 }
 
-func (s *Server) callTool(name string, args json.RawMessage) map[string]any {
+func (s *Server) callTool(id Identity, name string, args json.RawMessage) map[string]any {
+	deny := func(cap string) map[string]any {
+		s.opt.Store.Audit(id.Name, "tool_denied", name, false, "need="+cap)
+		return errResult("缺少 scope " + cap)
+	}
 	switch name {
 	case "kb_whoami":
-		return textResult(map[string]any{"actor": s.opt.Actor, "allow_get": s.opt.AllowGet, "version": version})
+		return textResult(map[string]any{"name": id.Name, "scopes": id.Scopes, "allow_get": s.opt.AllowGet, "version": version})
 
 	case "kb_list":
+		if !id.Can("kb:read") {
+			return deny("kb:read")
+		}
 		list, err := s.opt.Store.List()
 		if err != nil {
 			return errResult(err.Error())
 		}
-		s.opt.Store.Audit(s.opt.Actor, "list", "", true, "")
+		s.opt.Store.Audit(id.Name, "list", "", true, "")
 		return textResult(list)
 
 	case "kb_audit":
+		if !id.Can("kb:audit") {
+			return deny("kb:audit")
+		}
 		var a struct {
 			Limit int `json:"limit"`
 		}
@@ -209,8 +236,11 @@ func (s *Server) callTool(name string, args json.RawMessage) map[string]any {
 		return textResult(rows)
 
 	case "kb_get":
+		if !id.Can("kb:reveal") {
+			return deny("kb:reveal")
+		}
 		if !s.opt.AllowGet {
-			s.opt.Store.Audit(s.opt.Actor, "get_denied", "", false, "allow_get=false")
+			s.opt.Store.Audit(id.Name, "get_denied", "", false, "allow_get=false")
 			return errResult("kb_get 未启用：请用 kb_http 让服务端代发请求（凭据不进上下文）")
 		}
 		var a struct {
@@ -219,19 +249,22 @@ func (s *Server) callTool(name string, args json.RawMessage) map[string]any {
 		_ = json.Unmarshal(args, &a)
 		e, err := s.opt.Store.Get(a.Name)
 		if err != nil {
-			s.opt.Store.Audit(s.opt.Actor, "get", a.Name, false, err.Error())
+			s.opt.Store.Audit(id.Name, "get", a.Name, false, err.Error())
 			return errResult(err.Error())
 		}
-		s.opt.Store.Audit(s.opt.Actor, "get", a.Name, true, "plaintext-returned")
+		s.opt.Store.Audit(id.Name, "get", a.Name, true, "plaintext-returned")
 		return textResult(map[string]any{"name": e.Name, "username": e.Username, "secret": e.Secret})
 
 	case "kb_http":
-		return s.brokerHTTP(args)
+		if !id.Can("kb:http") {
+			return deny("kb:http")
+		}
+		return s.brokerHTTP(id, args)
 	}
 	return errResult("unknown tool: " + name)
 }
 
-func (s *Server) brokerHTTP(args json.RawMessage) map[string]any {
+func (s *Server) brokerHTTP(id Identity, args json.RawMessage) map[string]any {
 	var a struct {
 		Secret     string            `json:"secret"`
 		URL        string            `json:"url"`
@@ -261,7 +294,7 @@ func (s *Server) brokerHTTP(args json.RawMessage) map[string]any {
 	}
 	e, err := s.opt.Store.Get(a.Secret)
 	if err != nil {
-		s.opt.Store.Audit(s.opt.Actor, "http", a.Secret, false, err.Error())
+		s.opt.Store.Audit(id.Name, "http", a.Secret, false, err.Error())
 		return errResult(err.Error())
 	}
 	method := strings.ToUpper(a.Method)
@@ -316,7 +349,7 @@ func (s *Server) brokerHTTP(args json.RawMessage) map[string]any {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		s.opt.Store.Audit(s.opt.Actor, "http", a.Secret, false, err.Error())
+		s.opt.Store.Audit(id.Name, "http", a.Secret, false, err.Error())
 		return errResult("请求失败: " + err.Error())
 	}
 	defer resp.Body.Close()
@@ -343,7 +376,7 @@ func (s *Server) brokerHTTP(args json.RawMessage) map[string]any {
 	if redacted {
 		body = []byte(bodyStr)
 	}
-	s.opt.Store.Audit(s.opt.Actor, "http", a.Secret, resp.StatusCode < 400,
+	s.opt.Store.Audit(id.Name, "http", a.Secret, resp.StatusCode < 400,
 		fmt.Sprintf("%s %s %d", method, hostOf(a.URL), resp.StatusCode))
 	return textResult(map[string]any{
 		"status":  resp.StatusCode,
